@@ -261,17 +261,16 @@ extract_archive() {
     return $?
 }
 
-# Function to find the actual mod folder
+# Function to find the actual mod folder by locating manifest.json
 find_mod_folder() {
     local extract_dir="$1"
+    # Find the first manifest.json and get its directory path
+    local manifest_path=$(find "$extract_dir" -name "manifest.json" -type f -print -quit)
     
-    # Look for manifest.json to identify the real mod folder
-    local manifest=$(find "$extract_dir" -name "manifest.json" -type f | head -n 1)
-    
-    if [ -n "$manifest" ]; then
-        dirname "$manifest"
+    if [ -n "$manifest_path" ]; then
+        dirname "$manifest_path"
     else
-        echo "$extract_dir"
+        echo ""
     fi
 }
 
@@ -286,13 +285,12 @@ extract_mods() {
     local success_count=0
     local fail_count=0
     
-    # Process each archive
-    for archive in "$MOD_ARCHIVE_DIR"/*.{zip,7z,rar}; do
-        [ -f "$archive" ] || continue
-        
+    # Enable nullglob so the loop doesn't break if no files are found
+    shopt -s nullglob
+    local archives=("$MOD_ARCHIVE_DIR"/*.{zip,7z,rar})
+    
+    for archive in "${archives[@]}"; do
         local filename=$(basename "$archive")
-        local name_no_ext="${filename%.*}"
-        
         print_message "$BLUE" "Processing: $filename"
         
         # Create temporary extraction directory
@@ -300,34 +298,36 @@ extract_mods() {
         
         # Extract archive
         if extract_archive "$archive" "$temp_extract"; then
-            # Find the actual mod folder
-            local mod_folder=$(find_mod_folder "$temp_extract")
+            # Locate the folder that actually contains the mod files
+            local actual_mod_path=$(find_mod_folder "$temp_extract")
             
-            # Get the mod name from the deepest folder or use filename
-            local mod_name=$(basename "$mod_folder")
-            
-            # If the extracted content is just files, use the archive name
-            if [ "$mod_folder" == "$temp_extract" ]; then
-                mod_name="$name_no_ext"
+            if [ -n "$actual_mod_path" ]; then
+                # Use the name of the folder containing the manifest
+                local mod_name=$(basename "$actual_mod_path")
+                local dest_dir="$MOD_DIR/$mod_name"
+                
+                # If the folder name is just the temp dir (files were loose in zip), 
+                # use the zip name instead
+                if [[ "$mod_name" == tmp.* ]]; then
+                    mod_name="${filename%.*}"
+                    dest_dir="$MOD_DIR/$mod_name"
+                fi
+                
+                # Overwrite if exists
+                [ -d "$dest_dir" ] && rm -rf "$dest_dir"
+                
+                # Move the folder to the Mods directory
+                mv "$actual_mod_path" "$dest_dir"
+                
+                print_message "$GREEN" "  ✓ Installed: $mod_name"
+                ((success_count++))
+                
+                # Delete the original archive after successful installation
+                rm "$archive"
+            else
+                print_message "$RED" "  ✗ Skip: No manifest.json found in $filename"
+                ((fail_count++))
             fi
-            
-            local dest_dir="$MOD_DIR/$mod_name"
-            
-            # Check if mod already exists
-            if [ -d "$dest_dir" ]; then
-                print_message "$YELLOW" "  ⚠ Mod already exists, overwriting: $mod_name"
-                rm -rf "$dest_dir"
-            fi
-            
-            # Move mod to Mods directory
-            mv "$mod_folder" "$dest_dir"
-            
-            print_message "$GREEN" "  ✓ Installed: $mod_name"
-            
-            # Delete the archive
-            rm "$archive"
-            
-            ((success_count++))
         else
             print_message "$RED" "  ✗ Failed to extract: $filename"
             ((fail_count++))
@@ -335,17 +335,13 @@ extract_mods() {
         
         # Cleanup temp directory
         rm -rf "$temp_extract"
-        
         echo ""
-        sleep 0.5
     done
+    shopt -u nullglob
     
     print_header "INSTALLATION COMPLETE"
     print_message "$GREEN" "Successfully installed: $success_count mod(s)"
-    
-    if [ $fail_count -gt 0 ]; then
-        print_message "$RED" "Failed to install: $fail_count mod(s)"
-    fi
+    [ $fail_count -gt 0 ] && print_message "$RED" "Failed/Skipped: $fail_count mod(s)"
 }
 
 # Function to show completion message
@@ -397,6 +393,11 @@ main() {
     
     extract_mods
     show_completion
+    
+    # Prevent autoclose
+    echo ""
+    print_message "$YELLOW" "Press [ENTER] to exit..."
+    read
 }
 
 # Run main function
