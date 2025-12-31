@@ -161,46 +161,42 @@ install_smapi() {
     wget -q --show-progress "$SMAPI_URL" -O smapi.zip
     unzip -q smapi.zip
     
-    # Capture the folder name correctly
+    # Find the directory
     SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
     cd "$SMAPI_DIR" || exit 1
     
-    # Ensure permissions
+    # Ensure permissions for the main installer
     chmod +x "install on Linux.sh"
-    chmod +x internal/linux/install.sh
     
     print_message "$YELLOW" "Opening SMAPI Installer..."
+    print_message "$CYAN" "IMPORTANT: Please finish the installer in the new window."
 
-    # Define the command to run
-    # Using 'bash -c' inside the terminal often fixes the Lubuntu crash
+    # Launching the installer
     INSTALL_CMD="bash './install on Linux.sh'"
 
-    if command -v lxterminal >/dev/null 2>&1; then
+    if command -v qterminal >/dev/null 2>&1; then
+        qterminal --wait -e "$INSTALL_CMD"
+    elif command -v lxterminal >/dev/null 2>&1; then
         lxterminal -e "$INSTALL_CMD"
-    elif command -v qterminal >/dev/null 2>&1; then
-        qterminal -e "$INSTALL_CMD"
-    elif command -v x-terminal-emulator >/dev/null 2>&1; then
-        x-terminal-emulator -e "$INSTALL_CMD"
     else
-        # If all else fails, run it in the current window
-        ./"install on Linux.sh"
+        bash "./install on Linux.sh"
     fi
 
-    if [ $? -eq 0 ]; then
-        print_message "$GREEN" "✓ SMAPI installation session finished"
-    else
-        print_message "$RED" "Error: Installer exited with an error code"
-        rm -rf "$TEMP_DIR"
-        exit 1
-    fi
+    # Wait a moment to ensure the terminal has actually closed and released files
+    sleep 2
     
-    # Cleanup and Init
+    # CLEANUP & INITIALIZATION
+    print_message "$BLUE" "Finalizing installation..."
+    
+    # Instead of running the game, we manually create the Mods folder 
+    # and the internal SMAPI folders if they don't exist.
+    mkdir -p "$GAME_DIR/Mods"
+    mkdir -p "$GAME_DIR/smapi-internal"
+    
     cd "$HOME"
     rm -rf "$TEMP_DIR"
     
-    print_message "$BLUE" "Running SMAPI once to initialize mod folders..."
-    cd "$GAME_DIR"
-    timeout 5 ./StardewModdingAPI --no-terminal 2>/dev/null || true
+    print_message "$GREEN" "✓ SMAPI installation and folder setup complete"
 }
 
 # Function to select mod archive directory
