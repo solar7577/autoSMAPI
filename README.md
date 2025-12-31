@@ -259,7 +259,7 @@ cd "/path/to/Stardew Valley"
 - Mod profile management
 - Automatic mod updates
 
-## Useful Links
+# Useful Links
 
 - **SMAPI Official Site**: https://smapi.io/
 - **SMAPI Mod Compatibility**: https://smapi.io/mods
