@@ -1,56 +1,69 @@
 #!/bin/bash
 
-# AutoSMAPI - Stardew Valley Linux Mod Manager
-# Fixed for Lubuntu/Steam paths and Permissions
+# AutoSMAPI
+# Automated SMAPI installation and mod extraction utility
 
-# Colors
+# Color codes for pretty output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
+# Config file location
 CONFIG_FILE="$HOME/.config/autosmapi/config"
 
-# --- HELPER FUNCTIONS ---
+# Function to display the ASCII art logo
+show_logo() {
+    echo -e "${YELLOW}"
+    cat << "EOF"
+                          
+                          
+   ,---,       .--.--.    
+  '  .' \     /  /    '.  
+ /  ;    '.  |  :  /`. /  
+:  :       \ ;  |  |--`   
+:  |   /\   \|  :  ;_     
+|  :  ' ;.   :\  \    `.  
+|  |  ;/  \   \`----.   \ 
+'  :  | \  \ ,'__ \  \  | 
+|  |  '  '--' /  /`--'  / 
+|  :  :      '--'.     /  
+|  | ,'        `--'---'   
+`--''                     
 
+         AutoSMAPI
+    Stardew Valley Mod Installer
+                          
+EOF
+    echo -e "${NC}"
+}
+
+# Function to print colored messages
 print_message() {
-    echo -e "${1}${2}${NC}"
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}"
 }
 
+# Function to print section headers
 print_header() {
-    echo -e "\n${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
     echo -e "${CYAN}  $1${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}\n"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
 }
 
-# --- DIRECTORY FUNCTIONS ---
-
-# Defined early so other functions can find it
-get_mod_directory() {
-    local base_dir="$1"
-    if [ -z "$base_dir" ]; then
-        return 1
-    fi
-    local mod_path="$base_dir/Mods"
-    
-    # Create directory if missing
-    if [ ! -d "$mod_path" ]; then
-        mkdir -p "$mod_path" 2>/dev/null || sudo mkdir -p "$mod_path"
-    fi
-    echo "$mod_path"
-}
-
-# --- CONFIGURATION ---
-
+# Function to save config
 save_config() {
     mkdir -p "$(dirname "$CONFIG_FILE")"
-    # FIX: We now use escaped quotes \" to handle spaces in filenames safely
     echo "GAME_DIR=\"$GAME_DIR\"" > "$CONFIG_FILE"
     echo "MOD_ARCHIVE_DIR=\"$MOD_ARCHIVE_DIR\"" >> "$CONFIG_FILE"
 }
 
+# Function to load config
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"
@@ -59,32 +72,199 @@ load_config() {
     return 1
 }
 
+# Function to select game directory
 select_game_directory() {
     print_header "STEP 1: SELECT GAME DIRECTORY"
+    
+    echo -e "${BLUE}Please select your Stardew Valley installation:${NC}"
+    echo ""
     echo "1) GOG: ~/GOG Games/Stardew Valley/game"
     echo "2) Steam: ~/.local/share/Steam/steamapps/common/Stardew Valley"
     echo "3) Steam (alternate): ~/.steam/steam/steamapps/common/Stardew Valley"
     echo "4) Custom path"
+    echo ""
     
     read -p "Enter your choice (1-4): " choice
+    
     case $choice in
-        1) GAME_DIR="$HOME/GOG Games/Stardew Valley/game" ;;
-        2) GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Stardew Valley" ;;
-        3) GAME_DIR="$HOME/.steam/steam/steamapps/common/Stardew Valley" ;;
-        4) read -p "Enter custom path: " GAME_DIR; GAME_DIR="${GAME_DIR/#\~/$HOME}" ;;
-        *) print_message "$RED" "Invalid choice."; exit 1 ;;
+        1)
+            GAME_DIR="$HOME/GOG Games/Stardew Valley/game"
+            ;;
+        2)
+            GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Stardew Valley"
+            ;;
+        3)
+            GAME_DIR="$HOME/.steam/steam/steamapps/common/Stardew Valley"
+            ;;
+        4)
+            read -p "Enter custom path: " GAME_DIR
+            GAME_DIR="${GAME_DIR/#\~/$HOME}"
+            ;;
+        *)
+            print_message "$RED" "Invalid choice. Exiting."
+            exit 1
+            ;;
     esac
-
+    
     if [ ! -d "$GAME_DIR" ]; then
-        print_message "$RED" "Error: Directory not found: $GAME_DIR"
+        print_message "$RED" "Error: Directory does not exist: $GAME_DIR"
         exit 1
     fi
+    
     print_message "$GREEN" "✓ Game directory set: $GAME_DIR"
 }
 
+# Function to check and install dependencies
+check_dependencies() {
+    print_header "CHECKING DEPENDENCIES"
+    
+    local missing_deps=()
+    
+    # Check for required tools
+    command -v unzip >/dev/null 2>&1 || missing_deps+=("unzip")
+    command -v wget >/dev/null 2>&1 || missing_deps+=("wget")
+    
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        print_message "$YELLOW" "Missing dependencies: ${missing_deps[*]}"
+        print_message "$YELLOW" "Please install them with:"
+        print_message "$YELLOW" "sudo apt install ${missing_deps[*]}"
+        exit 1
+    fi
+    
+    # Check for optional tools
+    command -v 7z >/dev/null 2>&1 || print_message "$YELLOW" "⚠ 7z not found. Install with: sudo apt install p7zip-full"
+    command -v unrar >/dev/null 2>&1 || print_message "$YELLOW" "⚠ unrar not found. Install with: sudo apt install unrar"
+    
+    print_message "$GREEN" "✓ All required dependencies found"
+}
+
+# Function to install SMAPI
+install_smapi() {
+    print_header "STEP 2: INSTALLING SMAPI"
+    
+    # Check if SMAPI is already installed
+    if [ -f "$GAME_DIR/StardewModdingAPI" ]; then
+        print_message "$GREEN" "✓ SMAPI is already installed"
+        read -p "Do you want to reinstall/update SMAPI? (y/n): " reinstall
+        if [[ ! "$reinstall" =~ ^[Yy]$ ]]; then
+            return 0
+        fi
+    fi
+    
+    print_message "$BLUE" "Downloading latest SMAPI..."
+    
+    # Create temp directory
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR" || exit 1
+    
+    # Get the latest release download URL from GitHub API
+    print_message "$BLUE" "Fetching latest SMAPI release info..."
+    SMAPI_URL=$(wget -qO- https://api.github.com/repos/Pathoschild/SMAPI/releases/latest | grep "browser_download_url.*installer\.zip" | cut -d '"' -f 4 | head -n 1)
+    
+    if [ -z "$SMAPI_URL" ]; then
+        print_message "$RED" "Error: Could not determine latest SMAPI version"
+        print_message "$YELLOW" "Trying fallback URL..."
+        SMAPI_URL="https://github.com/Pathoschild/SMAPI/releases/latest/download/SMAPI-4.3.2-installer.zip"
+    fi
+    
+    print_message "$BLUE" "Downloading from: $SMAPI_URL"
+    wget -q --show-progress "$SMAPI_URL" -O smapi.zip
+    
+    if [ $? -ne 0 ]; then
+        print_message "$RED" "Error: Failed to download SMAPI"
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    
+    print_message "$BLUE" "Extracting SMAPI..."
+    unzip -q smapi.zip
+    
+    print_message "$BLUE" "Installing SMAPI..."
+    
+    # Find the extracted SMAPI folder
+    SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
+    
+    if [ -z "$SMAPI_DIR" ]; then
+        print_message "$RED" "Error: Could not find extracted SMAPI directory"
+        ls -la
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    
+    cd "$SMAPI_DIR" || exit 1
+    
+    # Make installer executable
+    chmod +x "install on Linux.sh"
+    
+    echo ""
+    print_message "$YELLOW" "═══════════════════════════════════════════════════════════"
+    print_message "$YELLOW" "  SMAPI installer will now open in a new window."
+    print_message "$YELLOW" "  Follow the prompts to complete installation."
+    print_message "$YELLOW" "  Press ENTER when installation is complete..."
+    print_message "$YELLOW" "═══════════════════════════════════════════════════════════"
+    echo ""
+    
+    # Try different terminals
+    if command -v qterminal >/dev/null 2>&1; then
+        qterminal -e "bash './install on Linux.sh'" &
+    elif command -v lxterminal >/dev/null 2>&1; then
+        lxterminal -e "bash './install on Linux.sh'" &
+    elif command -v gnome-terminal >/dev/null 2>&1; then
+        gnome-terminal -- bash -c "./install\ on\ Linux.sh; exec bash" &
+    elif command -v xterm >/dev/null 2>&1; then
+        xterm -e "bash './install on Linux.sh'" &
+    else
+        # Fallback to running in current terminal
+        bash "./install on Linux.sh"
+    fi
+    
+    # Wait for user to confirm installation is complete
+    read -p "Press ENTER after SMAPI installation completes..."
+    
+    if [ -f "$GAME_DIR/StardewModdingAPI" ]; then
+        print_message "$GREEN" "✓ SMAPI installed successfully"
+    else
+        print_message "$YELLOW" "⚠ Could not verify SMAPI installation"
+        print_message "$YELLOW" "Continuing anyway..."
+    fi
+    
+    # Cleanup
+    cd "$HOME"
+    rm -rf "$TEMP_DIR"
+    
+    # Ensure Mods folder exists
+    mkdir -p "$GAME_DIR/Mods"
+    
+    print_message "$GREEN" "✓ SMAPI initialization complete"
+}
+
+# Function to get mod directory
+get_mod_directory() {
+    local game_dir="$1"
+    
+    # Look for Mods directory inside the game directory
+    local mod_dir="$game_dir/Mods"
+    
+    if [ ! -d "$mod_dir" ]; then
+        # Create it if it doesn't exist
+        print_message "$YELLOW" "Creating Mods directory at: $mod_dir"
+        mkdir -p "$mod_dir"
+    fi
+    
+    echo "$mod_dir"
+}
+
+# Function to select mod archive directory
 select_mod_archive_directory() {
-    print_header "STEP 3: SELECT DOWNLOADS FOLDER"
-    read -p "Directory with zip files [default: ~/Downloads]: " input_dir
+    print_header "STEP 3: SELECT MOD ARCHIVE DIRECTORY"
+    
+    echo -e "${YELLOW}⚠  WARNING ⚠${NC}"
+    echo -e "${YELLOW}The utility will process ALL archive files (.zip, .7z, .rar)${NC}"
+    echo -e "${YELLOW}in the specified directory. Only specify folders containing${NC}"
+    echo -e "${YELLOW}mod archives you want to install!${NC}"
+    echo ""
+    
+    read -p "Enter the directory containing mod archives [default: ~/Downloads]: " input_dir
     
     if [ -z "$input_dir" ]; then
         MOD_ARCHIVE_DIR="$HOME/Downloads"
@@ -93,148 +273,195 @@ select_mod_archive_directory() {
     fi
     
     if [ ! -d "$MOD_ARCHIVE_DIR" ]; then
-        print_message "$RED" "Error: Directory not found."
+        print_message "$RED" "Error: Directory does not exist: $MOD_ARCHIVE_DIR"
         exit 1
     fi
-    print_message "$GREEN" "✓ mod directory set: $MOD_ARCHIVE_DIR"
-}
-
-# --- INSTALLATION LOGIC ---
-
-check_dependencies() {
-    print_header "CHECKING DEPENDENCIES"
-    local missing=0
-    for cmd in unzip wget; do
-        command -v $cmd >/dev/null 2>&1 || { print_message "$RED" "Missing: $cmd"; missing=1; }
-    done
-    [ $missing -eq 1 ] && print_message "$YELLOW" "Install missing tools with: sudo apt install unzip wget" && exit 1
-    print_message "$GREEN" "✓ Dependencies OK"
-}
-
-install_smapi() {
-    print_header "STEP 2: INSTALLING SMAPI"
     
-    if [ -f "$GAME_DIR/StardewModdingAPI" ]; then
-        read -p "SMAPI detected. Reinstall? (y/n): " reinstall
-        [[ ! "$reinstall" =~ ^[Yy]$ ]] && return 0
+    # Count archives
+    shopt -s nullglob
+    archives=("$MOD_ARCHIVE_DIR"/*.{zip,7z,rar})
+    archive_count=${#archives[@]}
+    shopt -u nullglob
+    
+    print_message "$GREEN" "✓ Archive directory set: $MOD_ARCHIVE_DIR"
+    print_message "$BLUE" "Found $archive_count archive(s) to process"
+    
+    if [ $archive_count -eq 0 ]; then
+        print_message "$YELLOW" "No archives found. Exiting."
+        exit 0
     fi
     
-    TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR" || exit 1
-    
-    print_message "$BLUE" "Downloading SMAPI..."
-    SMAPI_URL=$(wget -qO- https://api.github.com/repos/Pathoschild/SMAPI/releases/latest | grep "browser_download_url.*installer\.zip" | cut -d '"' -f 4 | head -n 1)
-    [ -z "$SMAPI_URL" ] && SMAPI_URL="https://github.com/Pathoschild/SMAPI/releases/latest/download/SMAPI-4.3.2-installer.zip"
-    
-    wget -q --show-progress "$SMAPI_URL" -O smapi.zip
-    unzip -q smapi.zip
-    
-    SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
-    cd "$SMAPI_DIR" || exit 1
-    
-    chmod +x "install on Linux.sh"
-    
-    print_message "$YELLOW" "Opening Installer..."
-    INSTALL_CMD="bash './install on Linux.sh'"
-    
-    # Try different terminals for Lubuntu
-    if command -v qterminal >/dev/null 2>&1; then qterminal --wait -e "$INSTALL_CMD"
-    elif command -v lxterminal >/dev/null 2>&1; then lxterminal -e "$INSTALL_CMD"
-    elif command -v x-terminal-emulator >/dev/null 2>&1; then x-terminal-emulator -e "$INSTALL_CMD"
-    else bash "./install on Linux.sh"; fi
-
-    cd "$HOME"
-    rm -rf "$TEMP_DIR"
-    
-    # Init folders
-    mkdir -p "$GAME_DIR/Mods"
-    print_message "$GREEN" "✓ SMAPI Setup Complete"
+    echo ""
+    read -p "Continue with extraction? (y/n): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        print_message "$YELLOW" "Cancelled by user."
+        exit 0
+    fi
 }
 
-extract_mods() {
-    print_header "STEP 4: INSTALLING MODS"
+# Function to extract archive without nesting
+extract_archive() {
+    local archive="$1"
+    local temp_extract="$2"
+    local extension="${archive##*.}"
     
-    # Safety Check
-    if [ -z "$GAME_DIR" ]; then print_message "$RED" "Error: GAME_DIR not set"; return 1; fi
+    case "$extension" in
+        zip)
+            unzip -q "$archive" -d "$temp_extract" 2>/dev/null
+            ;;
+        7z)
+            7z x "$archive" -o"$temp_extract" >/dev/null 2>&1
+            ;;
+        rar)
+            unrar x "$archive" "$temp_extract/" >/dev/null 2>&1
+            ;;
+    esac
+    
+    return $?
+}
+
+# Function to find the actual mod folder
+find_mod_folder() {
+    local extract_dir="$1"
+    
+    # Look for manifest.json to identify the real mod folder
+    local manifest=$(find "$extract_dir" -name "manifest.json" -type f | head -n 1)
+    
+    if [ -n "$manifest" ]; then
+        dirname "$manifest"
+    else
+        echo "$extract_dir"
+    fi
+}
+
+# Function to extract and install mods
+extract_mods() {
+    print_header "STEP 4: EXTRACTING AND INSTALLING MODS"
     
     MOD_DIR=$(get_mod_directory "$GAME_DIR")
-    print_message "$BLUE" "Target: $MOD_DIR"
+    print_message "$BLUE" "Mod installation directory: $MOD_DIR"
+    echo ""
+    
+    local success_count=0
+    local fail_count=0
     
     shopt -s nullglob
+    # Process each archive
     for archive in "$MOD_ARCHIVE_DIR"/*.{zip,7z,rar}; do
-        filename=$(basename "$archive")
+        [ -f "$archive" ] || continue
+        
+        local filename=$(basename "$archive")
+        local name_no_ext="${filename%.*}"
+        
         print_message "$BLUE" "Processing: $filename"
         
-        tmp_e=$(mktemp -d)
+        # Create temporary extraction directory
+        local temp_extract=$(mktemp -d)
         
-        # Extract based on extension
-        case "${archive##*.}" in
-            zip) unzip -q "$archive" -d "$tmp_e" 2>/dev/null ;;
-            7z) 7z x "$archive" -o"$tmp_e" >/dev/null 2>&1 ;;
-            rar) unrar x "$archive" "$tmp_e/" >/dev/null 2>&1 ;;
-        esac
-
-        # Smart Find: Look for manifest.json to find the real mod root
-        mod_root=$(find "$tmp_e" -name "manifest.json" -type f -exec dirname {} \; | head -n 1)
-        
-        if [ -n "$mod_root" ]; then
-            mod_name=$(basename "$mod_root")
+        # Extract archive
+        if extract_archive "$archive" "$temp_extract"; then
+            # Find the actual mod folder
+            local mod_folder=$(find_mod_folder "$temp_extract")
             
-            # If the folder name is generic (like "tmp"), use the zip name
-            [[ "$mod_name" == tmp* ]] && mod_name="${filename%.*}"
+            # Get the mod name from the deepest folder or use filename
+            local mod_name=$(basename "$mod_folder")
             
-            dest="$MOD_DIR/$mod_name"
-            
-            # Remove old version if exists
-            if [ -d "$dest" ]; then
-                rm -rf "$dest" 2>/dev/null || sudo rm -rf "$dest"
+            # If the extracted content is just files, use the archive name
+            if [ "$mod_folder" == "$temp_extract" ]; then
+                mod_name="$name_no_ext"
             fi
             
-            # Move with fallback to sudo
-            if mv "$mod_root" "$dest" 2>/dev/null; then
-                print_message "$GREEN" "  ✓ Installed: $mod_name"
-                rm "$archive"
-            else
-                print_message "$YELLOW" "  ⚠ Permission denied. Asking for password..."
-                sudo mv "$mod_root" "$dest" && print_message "$GREEN" "  ✓ Installed (via sudo)" && rm "$archive"
+            local dest_dir="$MOD_DIR/$mod_name"
+            
+            # Check if mod already exists
+            if [ -d "$dest_dir" ]; then
+                print_message "$YELLOW" "  ⚠ Mod already exists, overwriting: $mod_name"
+                rm -rf "$dest_dir"
             fi
+            
+            # Move mod to Mods directory
+            mv "$mod_folder" "$dest_dir"
+            
+            print_message "$GREEN" "  ✓ Installed: $mod_name"
+            
+            # Delete the archive
+            rm "$archive"
+            
+            ((success_count++))
         else
-            print_message "$RED" "  ✗ Skipped: No manifest.json found"
+            print_message "$RED" "  ✗ Failed to extract: $filename"
+            ((fail_count++))
         fi
         
-        rm -rf "$tmp_e"
+        # Cleanup temp directory
+        rm -rf "$temp_extract"
+        
+        echo ""
+        sleep 0.5
     done
     shopt -u nullglob
+    
+    print_header "INSTALLATION COMPLETE"
+    print_message "$GREEN" "Successfully installed: $success_count mod(s)"
+    
+    if [ $fail_count -gt 0 ]; then
+        print_message "$RED" "Failed to install: $fail_count mod(s)"
+    fi
 }
 
-# --- MAIN LOOP ---
+# Function to show completion message
+show_completion() {
+    echo ""
+    print_message "$GREEN" "╔═══════════════════════════════════════════════════════════╗"
+    print_message "$GREEN" "║                                                           ║"
+    print_message "$GREEN" "║  All mods have been installed!                            ║"
+    print_message "$GREEN" "║                                                           ║"
+    print_message "$GREEN" "║  To play with mods, launch Stardew Valley using:          ║"
+    print_message "$GREEN" "║  $GAME_DIR/StardewModdingAPI"
+    print_message "$GREEN" "║                                                           ║"
+    print_message "$GREEN" "║  Your mods are located at:                                ║"
+    print_message "$GREEN" "║  $(get_mod_directory "$GAME_DIR")"
+    print_message "$GREEN" "║                                                           ║"
+    print_message "$GREEN" "╚═══════════════════════════════════════════════════════════╝"
+    echo ""
+}
 
+# Main execution
 main() {
     clear
-    print_message "$YELLOW" "AutoSMAPI Installer"
+    show_logo
     
+    # Check if config exists
     if load_config; then
-        print_message "$BLUE" "Loaded Config: $GAME_DIR"
-        read -p "Use this config? (y/n): " use_conf
-        if [[ ! "$use_conf" =~ ^[Yy]$ ]]; then
-            rm "$CONFIG_FILE"
+        print_message "$BLUE" "Found existing configuration:"
+        print_message "$BLUE" "  Game Directory: $GAME_DIR"
+        print_message "$BLUE" "  Mod Archive Directory: $MOD_ARCHIVE_DIR"
+        echo ""
+        read -p "Use existing configuration? (y/n): " use_config
+        
+        if [[ ! "$use_config" =~ ^[Yy]$ ]]; then
             select_game_directory
+            check_dependencies
+            install_smapi
             select_mod_archive_directory
             save_config
+        else
+            check_dependencies
         fi
     else
         select_game_directory
+        check_dependencies
+        install_smapi
         select_mod_archive_directory
         save_config
     fi
     
-    check_dependencies
-    install_smapi
     extract_mods
+    show_completion
     
     echo ""
-    print_message "$YELLOW" "Installation Finished! Press [ENTER] to exit."
-    read
+    read -p "Press ENTER to exit..."
 }
 
+# Run main function
 main
