@@ -152,68 +152,60 @@ install_smapi() {
     
     print_message "$BLUE" "Downloading latest SMAPI..."
     
-    # Create temp directory
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR" || exit 1
     
-    # Get the latest release download URL from GitHub API
-    print_message "$BLUE" "Fetching latest SMAPI release info..."
     SMAPI_URL=$(wget -qO- https://api.github.com/repos/Pathoschild/SMAPI/releases/latest | grep "browser_download_url.*installer\.zip" | cut -d '"' -f 4 | head -n 1)
     
     if [ -z "$SMAPI_URL" ]; then
-        print_message "$RED" "Error: Could not determine latest SMAPI version"
-        print_message "$YELLOW" "Trying fallback URL..."
         SMAPI_URL="https://github.com/Pathoschild/SMAPI/releases/latest/download/SMAPI-4.3.2-installer.zip"
     fi
     
-    print_message "$BLUE" "Downloading from: $SMAPI_URL"
     wget -q --show-progress "$SMAPI_URL" -O smapi.zip
-    
-    if [ $? -ne 0 ]; then
-        print_message "$RED" "Error: Failed to download SMAPI"
-        rm -rf "$TEMP_DIR"
-        exit 1
-    fi
-    
-    print_message "$BLUE" "Extracting SMAPI..."
     unzip -q smapi.zip
     
-    print_message "$BLUE" "Installing SMAPI..."
-    
-    # Find the extracted SMAPI folder (it should be the only directory)
+    # FIX: Find the directory accurately even with spaces
     SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
     
-    if [ -z "$SMAPI_DIR" ]; then
+    if [ -z "$SMAPI_DIR" ] || [ ! -d "$SMAPI_DIR" ]; then
         print_message "$RED" "Error: Could not find extracted SMAPI directory"
-        ls -la
         rm -rf "$TEMP_DIR"
         exit 1
     fi
-    
+
+    # Enter the installer directory
     cd "$SMAPI_DIR" || exit 1
     
-    # Run SMAPI installer in automated mode
-    chmod +x internal/linux/install.sh
-    ./internal/linux/install.sh --game-path "$GAME_DIR" --install
-    
-    if [ $? -eq 0 ]; then
-        print_message "$GREEN" "✓ SMAPI installed successfully"
+    print_message "$YELLOW" "Opening SMAPI Installer in a new window..."
+    print_message "$YELLOW" "Please complete the installation there. This script will wait."
+
+    # Try to launch in a new terminal window and WAIT for it to close
+    if command -v x-terminal-emulator >/dev/null 2>&1; then
+        x-terminal-emulator -e "./install on Linux.sh"
+    elif command -v gnome-terminal >/dev/null 2>&1; then
+        gnome-terminal --wait -- "./install on Linux.sh"
+    elif command -v konsole >/dev/null 2>&1; then
+        konsole -e "./install on Linux.sh"
     else
-        print_message "$RED" "Error: SMAPI installation failed"
+        # Fallback: Run in current window if no GUI terminal is found
+        bash "./install on Linux.sh"
+    fi
+
+    if [ $? -eq 0 ]; then
+        print_message "$GREEN" "✓ SMAPI installation window closed"
+    else
+        print_message "$RED" "Error: SMAPI installation was interrupted"
         rm -rf "$TEMP_DIR"
         exit 1
     fi
     
-    # Cleanup
+    # Cleanup and Init
     cd "$HOME"
     rm -rf "$TEMP_DIR"
     
-    # Run SMAPI once to create folders
-    print_message "$BLUE" "Running SMAPI to initialize mod folders..."
+    print_message "$BLUE" "Running SMAPI once to initialize mod folders..."
     cd "$GAME_DIR"
     timeout 5 ./StardewModdingAPI --no-terminal 2>/dev/null || true
-    
-    print_message "$GREEN" "✓ SMAPI initialization complete"
 }
 
 # Function to get mod directory
