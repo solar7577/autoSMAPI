@@ -155,77 +155,52 @@ install_smapi() {
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR" || exit 1
     
-    # Get download URL
     SMAPI_URL=$(wget -qO- https://api.github.com/repos/Pathoschild/SMAPI/releases/latest | grep "browser_download_url.*installer\.zip" | cut -d '"' -f 4 | head -n 1)
-    
-    if [ -z "$SMAPI_URL" ]; then
-        SMAPI_URL="https://github.com/Pathoschild/SMAPI/releases/latest/download/SMAPI-4.3.2-installer.zip"
-    fi
+    [ -z "$SMAPI_URL" ] && SMAPI_URL="https://github.com/Pathoschild/SMAPI/releases/latest/download/SMAPI-4.3.2-installer.zip"
     
     wget -q --show-progress "$SMAPI_URL" -O smapi.zip
     unzip -q smapi.zip
     
-    # Find the directory (handles spaces correctly)
+    # Capture the folder name correctly
     SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
-    
-    if [ -z "$SMAPI_DIR" ]; then
-        print_message "$RED" "Error: Could not find extracted SMAPI directory"
-        rm -rf "$TEMP_DIR"
-        exit 1
-    fi
-
     cd "$SMAPI_DIR" || exit 1
     
-    # Make sure the installer is executable
+    # Ensure permissions
     chmod +x "install on Linux.sh"
+    chmod +x internal/linux/install.sh
     
-    print_message "$YELLOW" "Attempting to open SMAPI Installer in a new window..."
-    
-    # Try different terminal emulators common in Lubuntu/Ubuntu
+    print_message "$YELLOW" "Opening SMAPI Installer..."
+
+    # Define the command to run
+    # Using 'bash -c' inside the terminal often fixes the Lubuntu crash
+    INSTALL_CMD="bash './install on Linux.sh'"
+
     if command -v lxterminal >/dev/null 2>&1; then
-        lxterminal -e "./install on Linux.sh"
-    elif command -v x-terminal-emulator >/dev/null 2>&1; then
-        x-terminal-emulator -e "./install on Linux.sh"
+        lxterminal -e "$INSTALL_CMD"
     elif command -v qterminal >/dev/null 2>&1; then
-        qterminal -e "./install on Linux.sh"
+        qterminal -e "$INSTALL_CMD"
+    elif command -v x-terminal-emulator >/dev/null 2>&1; then
+        x-terminal-emulator -e "$INSTALL_CMD"
     else
-        # Fallback: Run it in the same window if a new one can't be opened
-        print_message "$YELLOW" "Could not open new window. Running in current terminal..."
-        bash "./install on Linux.sh"
+        # If all else fails, run it in the current window
+        ./"install on Linux.sh"
     fi
 
     if [ $? -eq 0 ]; then
-        print_message "$GREEN" "✓ SMAPI installer finished"
+        print_message "$GREEN" "✓ SMAPI installation session finished"
     else
-        print_message "$RED" "Error: SMAPI installation failed or was closed"
+        print_message "$RED" "Error: Installer exited with an error code"
         rm -rf "$TEMP_DIR"
         exit 1
     fi
     
-    # Cleanup
+    # Cleanup and Init
     cd "$HOME"
     rm -rf "$TEMP_DIR"
     
-    # Run SMAPI once to create folders
-    print_message "$BLUE" "Running SMAPI to initialize mod folders..."
+    print_message "$BLUE" "Running SMAPI once to initialize mod folders..."
     cd "$GAME_DIR"
     timeout 5 ./StardewModdingAPI --no-terminal 2>/dev/null || true
-}
-
-# Function to get mod directory
-get_mod_directory() {
-    local game_dir="$1"
-    
-    # Look for Mods directory inside the game directory
-    local mod_dir="$game_dir/Mods"
-    
-    if [ ! -d "$mod_dir" ]; then
-        # Create it if it doesn't exist
-        print_message "$YELLOW" "Creating Mods directory at: $mod_dir"
-        mkdir -p "$mod_dir"
-    fi
-    
-    echo "$mod_dir"
 }
 
 # Function to select mod archive directory
