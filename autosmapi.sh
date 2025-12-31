@@ -156,8 +156,17 @@ install_smapi() {
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR" || exit 1
     
-    # Download SMAPI
-    SMAPI_URL="https://github.com/Pathoschild/SMAPI/releases/latest/download/SMAPI-4.1.8-installer.zip"
+    # Get the latest release download URL from GitHub API
+    print_message "$BLUE" "Fetching latest SMAPI release info..."
+    SMAPI_URL=$(wget -qO- https://api.github.com/repos/Pathoschild/SMAPI/releases/latest | grep "browser_download_url.*installer\.zip" | cut -d '"' -f 4 | head -n 1)
+    
+    if [ -z "$SMAPI_URL" ]; then
+        print_message "$RED" "Error: Could not determine latest SMAPI version"
+        print_message "$YELLOW" "Trying fallback URL..."
+        SMAPI_URL="https://github.com/Pathoschild/SMAPI/releases/latest/download/SMAPI-4.3.2-installer.zip"
+    fi
+    
+    print_message "$BLUE" "Downloading from: $SMAPI_URL"
     wget -q --show-progress "$SMAPI_URL" -O smapi.zip
     
     if [ $? -ne 0 ]; then
