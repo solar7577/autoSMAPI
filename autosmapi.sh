@@ -1,166 +1,85 @@
 #!/bin/bash
 
-# AutoSMAPI - Reorganized and Fixed
-RED='\033[0;31m'
-GREEN='\033[0;32m'
+# Configuration
+CONFIG_FILE="$HOME/.config/autosmapi/config"
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
 NC='\033[0m'
 
-CONFIG_FILE="$HOME/.config/autosmapi/config"
+# --- REQUIRED FUNCTIONS (Must be at the top) ---
 
-# --- HELPER FUNCTIONS ---
+get_mod_directory() {
+    local base_dir="$1"
+    if [ -z "$base_dir" ]; then
+        return 1
+    fi
+    local mod_path="$base_dir/Mods"
+    [ ! -d "$mod_path" ] && mkdir -p "$mod_path"
+    echo "$mod_path"
+}
 
 print_message() { echo -e "${1}${2}${NC}"; }
 
-print_header() {
-    echo -e "\n${CYAN}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${CYAN}  $1${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}\n"
-}
-
-# --- CONFIGURATION FUNCTIONS ---
-
-save_config() {
-    mkdir -p "$(dirname "$CONFIG_FILE")"
-    # IMPORTANT: Use quotes around variables to handle spaces in paths
-    echo "GAME_DIR=\"$GAME_DIR\"" > "$CONFIG_FILE"
-    echo "MOD_ARCHIVE_DIR=\"$MOD_ARCHIVE_DIR\"" >> "$CONFIG_FILE"
-}
-
-load_config() {
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        return 0
-    fi
-    return 1
-}
-
-# --- DIRECTORY & DEPENDENCY FUNCTIONS ---
-
-get_mod_directory() {
-    local mod_dir="$1/Mods"
-    [ ! -d "$mod_dir" ] && mkdir -p "$mod_dir"
-    echo "$mod_dir"
-}
-
-select_game_directory() {
-    print_header "STEP 1: SELECT GAME DIRECTORY"
-    echo "1) GOG: ~/GOG Games/Stardew Valley/game"
-    echo "2) Steam: ~/.local/share/Steam/steamapps/common/Stardew Valley"
-    echo "3) Steam (alternate): ~/.steam/steam/steamapps/common/Stardew Valley"
-    echo "4) Custom path"
-    read -p "Enter choice (1-4): " choice
-    case $choice in
-        1) GAME_DIR="$HOME/GOG Games/Stardew Valley/game" ;;
-        2) GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Stardew Valley" ;;
-        3) GAME_DIR="$HOME/.steam/steam/steamapps/common/Stardew Valley" ;;
-        4) read -p "Enter custom path: " GAME_DIR; GAME_DIR="${GAME_DIR/#\~/$HOME}" ;;
-    esac
-    [ ! -d "$GAME_DIR" ] && print_message "$RED" "Error: Invalid Dir" && exit 1
-    print_message "$GREEN" "✓ Game directory set: $GAME_DIR"
-}
-
-check_dependencies() {
-    print_header "CHECKING DEPENDENCIES"
-    for cmd in unzip wget jq; do
-        command -v $cmd >/dev/null 2>&1 || { print_message "$RED" "Missing $cmd. Install with: sudo apt install $cmd"; exit 1; }
-    done
-    print_message "$GREEN" "✓ All required dependencies found"
-}
-
-# --- SMAPI INSTALLER ---
-
-install_smapi() {
-    print_header "STEP 2: INSTALLING SMAPI"
-    [ -f "$GAME_DIR/StardewModdingAPI" ] && read -p "SMAPI exists. Reinstall? (y/n): " ri && [[ ! "$ri" =~ ^[Yy]$ ]] && return 0
-
-    TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR" || exit 1
-    SMAPI_URL=$(wget -qO- https://api.github.com/repos/Pathoschild/SMAPI/releases/latest | grep "browser_download_url.*installer\.zip" | cut -d '"' -f 4 | head -n 1)
-    wget -q --show-progress "$SMAPI_URL" -O smapi.zip
-    unzip -q smapi.zip
-    
-    SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
-    cd "$SMAPI_DIR" || exit 1
-    chmod +x "install on Linux.sh"
-    
-    # Try terminal windows for Lubuntu
-    INSTALL_CMD="bash './install on Linux.sh'"
-    if command -v qterminal >/dev/null 2>&1; then qterminal -e "$INSTALL_CMD"
-    elif command -v lxterminal >/dev/null 2>&1; then lxterminal -e "$INSTALL_CMD"
-    else bash "./install on Linux.sh"; fi
-
-    mkdir -p "$GAME_DIR/Mods"
-    cd "$HOME" && rm -rf "$TEMP_DIR"
-}
-
-# --- MOD EXTRACTION ---
-
-find_mod_folder() {
-    local manifest_path=$(find "$1" -name "manifest.json" -type f -print -quit)
-    [ -n "$manifest_path" ] && dirname "$manifest_path"
-}
-
-extract_archive() {
-    local archive="$1"; local temp="$2"; local ext="${archive##*.}"
-    case "$ext" in
-        zip) unzip -q "$archive" -d "$temp" ;;
-        7z) 7z x "$archive" -o"$temp" >/dev/null 2>&1 ;;
-        rar) unrar x "$archive" "$temp/" >/dev/null 2>&1 ;;
-    esac
-}
+# --- MOD INSTALLATION ENGINE ---
 
 extract_mods() {
-    print_header "STEP 4: EXTRACTING AND INSTALLING MODS"
-    MOD_DIR=$(get_mod_directory "$GAME_DIR")
+    echo -e "\n${BLUE}STEP 4: EXTRACTING AND INSTALLING MODS${NC}"
     
+    # Validation: Ensure GAME_DIR is actually set
+    if [ -z "$GAME_DIR" ] || [ "$GAME_DIR" == "/" ]; then
+        print_message "$RED" "Error: Game directory is empty. Run Step 1 again."
+        return 1
+    fi
+
+    MOD_DIR=$(get_mod_directory "$GAME_DIR")
+    print_message "$GREEN" "Installing to: $MOD_DIR"
+
     shopt -s nullglob
     for archive in "$MOD_ARCHIVE_DIR"/*.{zip,7z,rar}; do
         filename=$(basename "$archive")
-        print_message "$BLUE" "Processing: $filename"
+        print_message "$YELLOW" "Extracting: $filename"
+        
         tmp_e=$(mktemp -d)
-        if extract_archive "$archive" "$tmp_e"; then
-            actual_mod=$(find_mod_folder "$tmp_e")
-            if [ -n "$actual_mod" ]; then
-                m_name=$(basename "$actual_mod")
-                dest="$MOD_DIR/$m_name"
-                rm -rf "$dest"
-                mv "$actual_mod" "$dest"
-                print_message "$GREEN" "  ✓ Installed: $m_name"
+        unzip -q "$archive" -d "$tmp_e" 2>/dev/null
+        
+        # Find manifest
+        actual_mod=$(find "$tmp_e" -name "manifest.json" -type f -exec dirname {} \; | head -n 1)
+        
+        if [ -n "$actual_mod" ]; then
+            mod_name=$(basename "$actual_mod")
+            dest="$MOD_DIR/$mod_name"
+            
+            # Try moving normally, fallback to sudo if denied
+            if mv "$actual_mod" "$dest" 2>/dev/null; then
+                print_message "$GREEN" "  ✓ Success: $mod_name"
                 rm "$archive"
+            else
+                print_message "$YELLOW" "  ! Permission denied. Requesting sudo for $mod_name..."
+                sudo mv "$actual_mod" "$dest" && print_message "$GREEN" "  ✓ Fixed with sudo" && rm "$archive"
             fi
         fi
         rm -rf "$tmp_e"
     done
 }
 
-# --- MAIN ENGINE ---
+# --- THE MAIN CALL ---
 
 main() {
-    clear
-    load_config
-    if [ -z "$GAME_DIR" ]; then
-        select_game_directory
-        check_dependencies
-        install_smapi
-        # Default mod archive dir to Downloads if not set
-        MOD_ARCHIVE_DIR="${MOD_ARCHIVE_DIR:-$HOME/Downloads}"
-        save_config
-    else
-        print_message "$BLUE" "Using Config: $GAME_DIR"
-        read -p "Change settings? (y/n): " change
-        if [[ "$change" =~ ^[Yy]$ ]]; then
-            rm "$CONFIG_FILE"
-            main
-            return
-        fi
-        check_dependencies
+    # Check if config exists and load it properly
+    if [ -f "$CONFIG_FILE" ]; then
+        # Use 'export' to ensure variables are global
+        set -a
+        source "$CONFIG_FILE"
+        set +a
     fi
-    
+
+    # ... (Your existing Step 1-3 logic here) ...
+
     extract_mods
-    print_message "$YELLOW" "\nDone! Press [ENTER] to exit..."
+
+    print_message "$YELLOW" "\nAll done. Press [ENTER] to close."
     read
 }
 
