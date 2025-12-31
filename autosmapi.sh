@@ -155,6 +155,7 @@ install_smapi() {
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR" || exit 1
     
+    # Get download URL
     SMAPI_URL=$(wget -qO- https://api.github.com/repos/Pathoschild/SMAPI/releases/latest | grep "browser_download_url.*installer\.zip" | cut -d '"' -f 4 | head -n 1)
     
     if [ -z "$SMAPI_URL" ]; then
@@ -164,46 +165,49 @@ install_smapi() {
     wget -q --show-progress "$SMAPI_URL" -O smapi.zip
     unzip -q smapi.zip
     
-    # FIX: Find the directory accurately even with spaces
+    # Find the directory (handles spaces correctly)
     SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
     
-    if [ -z "$SMAPI_DIR" ] || [ ! -d "$SMAPI_DIR" ]; then
+    if [ -z "$SMAPI_DIR" ]; then
         print_message "$RED" "Error: Could not find extracted SMAPI directory"
         rm -rf "$TEMP_DIR"
         exit 1
     fi
 
-    # Enter the installer directory
     cd "$SMAPI_DIR" || exit 1
     
-    print_message "$YELLOW" "Opening SMAPI Installer in a new window..."
-    print_message "$YELLOW" "Please complete the installation there. This script will wait."
-
-    # Try to launch in a new terminal window and WAIT for it to close
-    if command -v x-terminal-emulator >/dev/null 2>&1; then
+    # Make sure the installer is executable
+    chmod +x "install on Linux.sh"
+    
+    print_message "$YELLOW" "Attempting to open SMAPI Installer in a new window..."
+    
+    # Try different terminal emulators common in Lubuntu/Ubuntu
+    if command -v lxterminal >/dev/null 2>&1; then
+        lxterminal -e "./install on Linux.sh"
+    elif command -v x-terminal-emulator >/dev/null 2>&1; then
         x-terminal-emulator -e "./install on Linux.sh"
-    elif command -v gnome-terminal >/dev/null 2>&1; then
-        gnome-terminal --wait -- "./install on Linux.sh"
-    elif command -v konsole >/dev/null 2>&1; then
-        konsole -e "./install on Linux.sh"
+    elif command -v qterminal >/dev/null 2>&1; then
+        qterminal -e "./install on Linux.sh"
     else
-        # Fallback: Run in current window if no GUI terminal is found
+        # Fallback: Run it in the same window if a new one can't be opened
+        print_message "$YELLOW" "Could not open new window. Running in current terminal..."
         bash "./install on Linux.sh"
     fi
 
     if [ $? -eq 0 ]; then
-        print_message "$GREEN" "✓ SMAPI installation window closed"
+        print_message "$GREEN" "✓ SMAPI installer finished"
     else
-        print_message "$RED" "Error: SMAPI installation was interrupted"
+        print_message "$RED" "Error: SMAPI installation failed or was closed"
         rm -rf "$TEMP_DIR"
         exit 1
     fi
     
-    # Cleanup and Init
+    # Cleanup
     cd "$HOME"
     rm -rf "$TEMP_DIR"
     
-    print_message "$BLUE" "Running SMAPI once to initialize mod folders..."
+    # Run SMAPI once to create folders
+    print_message "$BLUE" "Running SMAPI to initialize mod folders..."
     cd "$GAME_DIR"
     timeout 5 ./StardewModdingAPI --no-terminal 2>/dev/null || true
 }
