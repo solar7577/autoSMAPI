@@ -179,7 +179,18 @@ install_smapi() {
     unzip -q smapi.zip
     
     print_message "$BLUE" "Installing SMAPI..."
-    cd "SMAPI "*"-installer" || exit 1
+    
+    # Find the extracted SMAPI folder (it should be the only directory)
+    SMAPI_DIR=$(find . -maxdepth 1 -type d -name "SMAPI*" | head -n 1)
+    
+    if [ -z "$SMAPI_DIR" ]; then
+        print_message "$RED" "Error: Could not find extracted SMAPI directory"
+        ls -la
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    
+    cd "$SMAPI_DIR" || exit 1
     
     # Run SMAPI installer in automated mode
     chmod +x internal/linux/install.sh
